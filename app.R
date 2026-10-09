@@ -1,5 +1,7 @@
 # use this if the ragg renderer doesn't work, it defaults to the standard renderer than
 options(shiny.useragg = FALSE)
+# raise Shiny's default 5 MB upload limit (combined NDJSON files exceed it)
+options(shiny.maxRequestSize = 100 * 1024^2)
 
 # 1. Install and load required packages
 ensure_pkg <- function(pkgs) {
@@ -269,6 +271,13 @@ ui <- fluidPage(
   ),
 
   navbarPage("Medical Data Dashboard",
+             # global control for axis/legend/title text size of all plots
+             header = div(
+               style = "display:flex; justify-content:flex-end; margin:-10px 15px 5px 0;",
+               radioButtons("plotTextSize", "Plot text size:",
+                            choices = c("Small" = 12, "Normal" = 16, "Large" = 20, "Extra large" = 24),
+                            selected = 16, inline = TRUE)
+             ),
 
              # -- Data Upload Tab --
              tabPanel("Data Upload",
@@ -500,6 +509,10 @@ server <- function(input, output, session) {
   # 4.0 Manage file list
   uploadedFiles <- reactiveVal(list())
   lastCensusPlot <- reactiveVal(NULL)
+
+  # base font size for all plots, plus the factor for geom_text labels (sized in mm)
+  plot_text_size  <- reactive(if (is.null(input$plotTextSize)) 16 else as.numeric(input$plotTextSize))
+  plot_text_scale <- reactive(plot_text_size() / 14)
 
   # 4.1 Load JSON data
   # A MeasureReport yields the distribution chosen in the upload tab (default: first)
@@ -1356,7 +1369,7 @@ server <- function(input, output, session) {
           df0$Category <- factor(df0$Category, levels = all_categories)
 
           p_base <- ggplot(df0, aes(x = Category, y = Count, fill = Category)) +
-            theme_minimal(base_size = 14) +
+            theme_minimal(base_size = plot_text_size()) +
             scale_y_continuous(limits = c(0, globalMax())) +
             scale_x_discrete(drop = FALSE)  # Show all categories even if Count = 0
 
@@ -1430,8 +1443,8 @@ server <- function(input, output, session) {
     ggplot(combinedData(), aes(x = Category, y = Count, fill = Source)) +
       geom_bar(stat = "identity", position = "stack") +
       scale_y_continuous(limits = c(0, globalMax())) +
-      theme_minimal(base_size = 14) +
-      labs(title = "Combined Data", x = "Category", y = "Count")
+      theme_minimal(base_size = plot_text_size()) +
+      labs(title = "Combined Data", x = "Category", y = "Count", fill = NULL)
   })
 
   output$downloadCombined <- downloadHandler(
@@ -1482,8 +1495,8 @@ server <- function(input, output, session) {
     ggplot(intersectionData(), aes(x = Category, y = Count, fill = Source)) +
       geom_bar(stat = "identity", position = "stack") +
       scale_y_continuous(limits = c(0, globalMax())) +
-      theme_minimal(base_size = 14) +
-      labs(title = "Intersection Data", x = "Category", y = "Count")
+      theme_minimal(base_size = plot_text_size()) +
+      labs(title = "Intersection Data", x = "Category", y = "Count", fill = NULL)
   })
 
   output$downloadIntersection <- downloadHandler(
@@ -1544,7 +1557,7 @@ server <- function(input, output, session) {
       p <- ggplot(plot_df, aes(x = Category, y = Percent, fill = Stratifier)) +
         geom_bar(stat = "identity", colour = "white", linewidth = 0.2) +
         facet_grid(~Stratifier, scales = "free_x", space = "free_x") +
-        theme_minimal(base_size = 14) +
+        theme_minimal(base_size = plot_text_size()) +
         labs(
           title    = "Population by Age Group and by Gender",
           subtitle = paste(census_df$Source[1],
@@ -1555,12 +1568,12 @@ server <- function(input, output, session) {
         theme(
           axis.text.x     = element_text(angle = 45, hjust = 1),
           legend.position = "none",
-          plot.title      = element_text(hjust = 0.5, face = "bold", size = 16),
+          plot.title      = element_text(hjust = 0.5, face = "bold", size = rel(1.15)),
           plot.subtitle   = element_text(hjust = 0.5)
         ) +
         scale_fill_brewer(palette = "Set2")
       if (show_values) {
-        p <- p + geom_text(aes(label = Count), vjust = -0.4, size = 2.8)
+        p <- p + geom_text(aes(label = Count), vjust = -0.4, size = 2.8 * plot_text_scale())
       }
       lastCensusPlot(p)
       return(p)
@@ -1573,7 +1586,7 @@ server <- function(input, output, session) {
     plot_df$Age <- factor(plot_df$Age, levels = age_order)
 
     p <- ggplot(plot_df, aes(x = Age, y = Percent, fill = Gender)) +
-      theme_minimal(base_size = 14) +
+      theme_minimal(base_size = plot_text_size()) +
       labs(
         title    = "Population by Age Group and Gender",
         subtitle = census_df$Source[1],
@@ -1584,7 +1597,7 @@ server <- function(input, output, session) {
       theme(
         axis.text.x     = element_text(angle = 45, hjust = 1),
         legend.position = "bottom",
-        plot.title      = element_text(hjust = 0.5, face = "bold", size = 16),
+        plot.title      = element_text(hjust = 0.5, face = "bold", size = rel(1.15)),
         plot.subtitle   = element_text(hjust = 0.5)
       ) +
       scale_fill_brewer(palette = "Set2")
@@ -1595,14 +1608,14 @@ server <- function(input, output, session) {
                         colour = "white", linewidth = 0.2)
       if (show_values) {
         p <- p + geom_text(aes(label = paste0(Percent, "%")),
-                           position = position_stack(vjust = 0.5), size = 2.8)
+                           position = position_stack(vjust = 0.5), size = 2.8 * plot_text_scale())
       }
     } else {
       p <- p + geom_bar(stat = "identity", position = position_dodge(width = 0.9),
                         alpha = 1, colour = "white", linewidth = 0.2)
       if (show_values) {
         p <- p + geom_text(aes(label = Count), position = position_dodge(width = 0.9),
-                           vjust = -0.4, size = 2.8)
+                           vjust = -0.4, size = 2.8 * plot_text_scale())
       }
     }
 
@@ -2143,7 +2156,7 @@ server <- function(input, output, session) {
 
     ggplot(bin_counts, aes(x = bin_label, y = .data[[y_var]], fill = bin_label)) +
       geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
-      theme_minimal(base_size = 14) +
+      theme_minimal(base_size = plot_text_size()) +
       labs(
         title = paste("Distribution of", selected_attribute, "across bins"),
         x     = "Bin",
@@ -3006,7 +3019,7 @@ server <- function(input, output, session) {
             scale_x_discrete(drop = FALSE) +  # ← keep empty bins
             {if (has_gender) scale_fill_brewer(palette = "Set2")
              else scale_fill_manual(values = c(All = "#2a78d6"), guide = "none")} +
-            theme_minimal(base_size = 14) +
+            theme_minimal(base_size = plot_text_size()) +
             labs(
               title    = d$name,
               subtitle = if (!is.null(d$members)) paste("Aggregate of:", paste(d$members, collapse = ", ")),
@@ -3150,7 +3163,7 @@ server <- function(input, output, session) {
         labels  = function(breaks) lapply(breaks, function(b)
           label_interactive(labels[[b]], data_id = b))
       ) +
-      theme_minimal(base_size = 14) +
+      theme_minimal(base_size = plot_text_size()) +
       labs(
         title    = switch(style,
                           lines = "Overlay Comparison",
@@ -3162,7 +3175,7 @@ server <- function(input, output, session) {
                    else NULL,
         x        = if (input$viz_bin_type == "census") "Age group" else NULL,
         y        = y_label,
-        fill     = "Source"
+        fill     = NULL
       ) +
       guides(fill = guide_legend_interactive(ncol = 2, override.aes = list(size = 3.5))) +
       theme(
