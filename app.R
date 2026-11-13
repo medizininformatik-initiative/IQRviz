@@ -270,7 +270,7 @@ ui <- fluidPage(
   "))
   ),
 
-  navbarPage("Medical Data Dashboard",
+  navbarPage("IQRviz",
              # global control for axis/legend/title text size of all plots
              header = div(
                style = "display:flex; justify-content:flex-end; margin:-10px 15px 5px 0;",
@@ -285,7 +285,7 @@ ui <- fluidPage(
                         sidebarPanel(
                           h4("Upload Files"),
                           fileInput("newFiles", "Add Files",
-                                    accept = c(".csv", ".json"), multiple = TRUE),
+                                    accept = c(".csv", ".json", ".ndjson"), multiple = TRUE),
                           hr(),
                           uiOutput("fileListUI"),
                           actionButton("removeSelected", "Remove Selected",
@@ -621,7 +621,22 @@ server <- function(input, output, session) {
 
   loadFhirFile <- function(path, filename) {
     tryCatch({
-      fhir_data <- fromJSON(path, simplifyVector = FALSE)
+      # Read the file as one Bundle. The file is first parsed as a single JSON
+      # document (a Bundle or resource, possibly spread over several lines, as in
+      # the POLAR "*.ndjson" exports); if that fails, as NDJSON with one Bundle or
+      # resource per line
+      parsed <- tryCatch(
+        list(fromJSON(path, simplifyVector = FALSE)),
+        error = function(e) {
+          lines <- readLines(path, warn = FALSE, encoding = "UTF-8")
+          lapply(lines[nzchar(trimws(lines))], fromJSON, simplifyVector = FALSE)
+        }
+      )
+      entries <- unlist(lapply(parsed, function(x) {
+        if (identical(x$resourceType, "Bundle")) x$entry
+        else if (!is.null(x$resourceType)) list(list(resource = x))
+      }), recursive = FALSE)
+      fhir_data <- list(resourceType = "Bundle", entry = entries)
 
       # Helper function to safely flatten any FHIR resource
       flatten_fhir_resource <- function(resource, prefix = "") {
@@ -1295,9 +1310,9 @@ server <- function(input, output, session) {
   output$statTable <- renderTable({
     do.call(rbind, lapply(allData(), function(x)
       data.frame(Dataset = x$name,
-                 Count   = nrow(x$data),
-                 Mean    = mean(x$data$Count, na.rm = TRUE),
-                 stringsAsFactors = FALSE)))
+                 Categories   = nrow(x$data),
+                 `Mean count` = mean(x$data$Count, na.rm = TRUE),
+                 stringsAsFactors = FALSE, check.names = FALSE)))
   })
 
   # 4.8 Update UI choices for combine/stack tabs
@@ -1879,7 +1894,8 @@ server <- function(input, output, session) {
       list(
         name = input$newFiles$name[i],
         path = input$newFiles$datapath[i],
-        type = "csv_json"  # default type
+        # default type; NDJSON files can only hold FHIR resources
+        type = if (tolower(tools::file_ext(input$newFiles$name[i])) == "ndjson") "fhir" else "csv_json"
       )
     })
 
@@ -3086,7 +3102,7 @@ server <- function(input, output, session) {
       )
     }))
     combined$source <- factor(combined$source, levels = sapply(dl, `[[`, "name"))
-    strip_ext <- function(x) sub("\\.(json|csv)$", "", x, ignore.case = TRUE)
+    strip_ext <- function(x) sub("\\.(n?json|csv)$", "", x, ignore.case = TRUE)
 
     # Census bins look like "<age> · <gender>": split them so age becomes the
     # x-axis and gender a panel, instead of interleaving genders along one axis

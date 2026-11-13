@@ -1,6 +1,6 @@
-# Interactive Medical Data App
+# IQRviz – Interoperable data Quality Report visualization
 
-**Version**: 1.0.1
+**Version**: 1.0.2
 
 ---
 
@@ -40,7 +40,7 @@
 
 | **Category**                       | **Description**                                                                                                                                             |
 |------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Data Import**                    | • Upload multiple CSV, JSON, FHIR® `MeasureReport` and FHIR bundle files (e.g. pre-fetched from a HAPI test server)<br>• Live FHIR server connection code exists (`fhircrackr`/`httr`) but is currently not wired into the UI |
+| **Data Import**                    | • Upload multiple CSV, JSON, FHIR® `MeasureReport`, FHIR bundle and FHIR NDJSON files (e.g. pre-fetched from a HAPI test server)<br>• A live FHIR server connection (`fhircrackr`/`httr`) exists but is currently disabled due to a lack of usage perspective |
 | **MeasureReports / DQ-SRs**        | • Any `MeasureReport` is read from its FHIR structure alone (R4 and R5): every stratifier becomes a category/count distribution<br>• Reports with several stratifiers get a selector for the distribution to use |
 | **Census Reports**                 | • Age × gender `MeasureReport`s in *composite* and *separate* style (see [Census report styles](#census-report-styles)) |
 | **Column Mapping**                 | • Map the category column (and optionally a count column) when CSV headers differ from `Category`/`Count`                                                  |
@@ -60,7 +60,7 @@ Each uploaded file is assigned a type on the **Data Upload** tab:
 |--------------|------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | **CSV/JSON** | Value distributions: CSV files (with `Category`/`Count` columns, or mapped columns), JSON histograms (`{"Histogram": [{"Category": {"@value": …}, "Count": {"@value": …}}]}`) and FHIR `MeasureReport`s such as DQ-SRs |
 | **Census**   | Age × gender `MeasureReport`s in composite or separate style                                                                                               |
-| **FHIR**     | FHIR bundles (JSON) with individual resources, e.g. `Patient`                                                                                              |
+| **FHIR**     | FHIR bundles or single resources (JSON), or NDJSON files with one bundle or resource per line, e.g. `Patient`                                              |
 
 ### Census report styles
 
@@ -140,15 +140,14 @@ The application is a single-file Shiny app (`app.R`) with a clear separation of 
 1. **Clone repository**
 
    ```bash
-   git clone https://git.uni-greifswald.de/MILA_public/DQ-App.git
-   cd DQ-App
+   git clone https://github.com/medizininformatik-initiative/IQRviz.git
+   cd IQRviz
    ```
 
 2. **Install & Run**
 
    ```r
-   source("app.R")  # ensure_pkg() installs missing dependencies
-   runApp("app.R")
+   shiny::runApp("app.R")  # ensure_pkg() installs missing dependencies
    ```
 
 > **Need a ready-made R environment?**
@@ -156,31 +155,40 @@ The application is a single-file Shiny app (`app.R`) with a clear separation of 
 > [Rocker Project](https://rocker-project.org/). The `rocker/shiny` or
 > `rocker/tidyverse` images provide R with Shiny preinstalled and give you a
 > reproducible environment for running the app.
+> With Docker installed, you just can use `docker run --rm -ti -e PASSWORD=yourpassword -p 8787:8787 rocker/rstudio`, open `localhost:8787` and login `with rstudio/yourpassword`
 
 ---
 
 ## Usage
 
 1. Run the app (see Installation above) — Shiny will open it automatically in a browser window/tab.
-2. Navigate tabs:
+2. Use *Plot text size* (top right, on every tab) to set the text size of all plots: Small, Normal, Large or Extra large.
+3. Navigate tabs:
 
    * **Data Upload**: Upload files and assign each a type (CSV/JSON, Census, FHIR); map CSV columns and choose the stratifier of multi-stratifier `MeasureReport`s
    * **Census Data**: Investigate a single census report: age × gender distribution (composite) or age and gender totals (separate), summary and raw tables, download as JSON or PNG
    * **FHIR in bins**: Bin the values of a FHIR attribute and export the bins as a FHIR `MeasureReport`; the bins can be reused in Compare
    * **Compare**: Select sites, aggregate them, choose the bins (census, categories of a report, or FHIR bins) and compare them side by side or overlaid; download as CSV, JSON or `MeasureReport`
    * **Combined Data**: Combine categories, download JSON
-   * **Statistics**: View summaries & category presence
+   * **Statistics**: View the number of categories and mean count per dataset & category presence
 
 ### Example files
 
 `input_examples/` contains files for every input type:
 
-| **Path**                                   | **Type**  | **Content**                                                    |
-|--------------------------------------------|-----------|----------------------------------------------------------------|
-| `age.json`                                 | CSV/JSON  | JSON histogram of age groups                                   |
-| `csv/patients.csv`, `csv/people-100.csv`   | CSV/JSON  | Record-level CSV files (map a category column on upload)       |
-| `fhir/hapi_batch*.json`                    | FHIR      | FHIR bundles fetched from a public HAPI test server            |
-| `MeasureReport-…-composite-zensus-2022.json`, `sex_gender_zensus/2022.json` | Census | 2022 census, composite style                 |
+| **Path**                                           | **Type**  | **Content**                                                                 |
+|----------------------------------------------------|-----------|-----------------------------------------------------------------------------|
+| `age.json`                                         | CSV/JSON  | JSON histogram of age groups                                                |
+| `csv/patients.csv`, `csv/people-100.csv`           | CSV/JSON  | Record-level CSV files (map a category column on upload)                    |
+| `fhir/hapi_batch*.json`                            | FHIR      | FHIR bundles fetched from a public HAPI test server                         |
+| `polar/POLAR_Testdaten_Original_*.ndjson`          | FHIR      | POLAR test data per site: one FHIR Bundle, one patient per line            |
+| `polar/POLAR_combined.ndjson`                      | FHIR      | POLAR test data of all sites in one Bundle                                  |
+| `MeasureReport-…-composite-zensus-2022.json`, `sex_gender_zensus/2022.json` | Census | 2022 census, composite style                          |
+| `different_report_styles/composite-{2011,2022}-age-gender-zensus.json` | Census | 2011 and 2022 census, composite style                       |
+| `different_report_styles/separate-{2011,2022}-age-gender-zensus.json`  | Census | 2011 and 2022 census, separate style                        |
+| `different_report_styles/composite-2022-age-gender-zensus_app_download.json` | –  | Output of the *Census Data* JSON download (a list of age × gender rows), shown for reference; not a `MeasureReport` and not an input file |
+
+`ageDistributionByState/` holds the 2011 and 2022 census per German federal state and for Germany as a whole (`<year>-<no> <state>.json`, `<year>-Deutschland.json`), each a composite age × gender `MeasureReport` (type *Census*), e.g. to compare states in **Compare**.
 
 ---
 
@@ -199,6 +207,4 @@ The application is a single-file Shiny app (`app.R`) with a clear separation of 
 
 ---
 
-> **Note**: A live FHIR-server connection was implemented and works, but is currently not exposed in the UI — no immediate use case was found for it. FHIR data is currently provided via uploading pre-fetched bundle JSON files instead.
-
-
+> **Note**: A live FHIR-server connection exists but is currently disabled due to a lack of usage perspective. FHIR data is provided by uploading pre-fetched bundle JSON or NDJSON files instead.
