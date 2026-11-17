@@ -619,24 +619,32 @@ server <- function(input, output, session) {
 
   # 4.3 load FHIR files
 
+  # Read a FHIR file as one Bundle. The file is first parsed as a single JSON
+  # document (a Bundle or resource, possibly spread over several lines, as in
+  # the POLAR "*.ndjson" exports); if that fails, as NDJSON with one Bundle or
+  # resource per line
+  readFhirBundle <- function(path) {
+    parsed <- tryCatch(
+      list(fromJSON(path, simplifyVector = FALSE)),
+      error = function(e) {
+        lines <- readLines(path, warn = FALSE, encoding = "UTF-8")
+        lapply(lines[nzchar(trimws(lines))], fromJSON, simplifyVector = FALSE)
+      }
+    )
+    # A top-level JSON array holds several Bundles, resources or entries
+    items <- unlist(lapply(parsed, function(x) if (is.null(names(x))) x else list(x)),
+                    recursive = FALSE)
+    entries <- unlist(lapply(items, function(x) {
+      if (identical(x$resourceType, "Bundle")) x$entry
+      else if (!is.null(x$resourceType)) list(list(resource = x))
+      else if (!is.null(x$resource)) list(x)
+    }), recursive = FALSE)
+    list(resourceType = "Bundle", entry = entries)
+  }
+
   loadFhirFile <- function(path, filename) {
     tryCatch({
-      # Read the file as one Bundle. The file is first parsed as a single JSON
-      # document (a Bundle or resource, possibly spread over several lines, as in
-      # the POLAR "*.ndjson" exports); if that fails, as NDJSON with one Bundle or
-      # resource per line
-      parsed <- tryCatch(
-        list(fromJSON(path, simplifyVector = FALSE)),
-        error = function(e) {
-          lines <- readLines(path, warn = FALSE, encoding = "UTF-8")
-          lapply(lines[nzchar(trimws(lines))], fromJSON, simplifyVector = FALSE)
-        }
-      )
-      entries <- unlist(lapply(parsed, function(x) {
-        if (identical(x$resourceType, "Bundle")) x$entry
-        else if (!is.null(x$resourceType)) list(list(resource = x))
-      }), recursive = FALSE)
-      fhir_data <- list(resourceType = "Bundle", entry = entries)
+      fhir_data <- readFhirBundle(path)
 
       # Helper function to safely flatten any FHIR resource
       flatten_fhir_resource <- function(resource, prefix = "") {
@@ -2484,8 +2492,7 @@ server <- function(input, output, session) {
               summarise(Count = sum(Count), .groups = "drop")
 
           } else if (f$type == "fhir") {
-            raw     <- jsonlite::fromJSON(f$path, simplifyVector = FALSE)
-            entries <- if (!is.null(raw$resourceType) && raw$resourceType == "Bundle") raw$entry else raw
+            entries <- readFhirBundle(f$path)$entry
             if (is.null(entries) || length(entries) == 0) return(NULL)
 
             patients <- Filter(function(e) {
